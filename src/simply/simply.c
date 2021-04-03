@@ -8,12 +8,15 @@
 #include "simply_msg.h"
 #include "simply_ui.h"
 #include "simply_window_stack.h"
+#include "simply_wakeup.h"
+#include "simply_voice.h"
 
 #include <pebble.h>
 
 Simply *simply_init(void) {
   Simply *simply = malloc(sizeof(*simply));
   simply->accel = simply_accel_create(simply);
+  simply->voice = simply_voice_create(simply);
   simply->res = simply_res_create(simply);
   simply->splash = simply_splash_create(simply);
   simply->stage = simply_stage_create(simply);
@@ -21,6 +24,8 @@ Simply *simply_init(void) {
   simply->msg = simply_msg_create(simply);
   simply->ui = simply_ui_create(simply);
   simply->window_stack = simply_window_stack_create(simply);
+
+  simply_wakeup_init(simply);
 
   bool animated = false;
   window_stack_push(simply->splash->window, animated);
@@ -36,5 +41,6 @@ void simply_deinit(Simply *simply) {
   simply_stage_destroy(simply->stage);
   simply_res_destroy(simply->res);
   simply_accel_destroy(simply->accel);
+  simply_voice_destroy(simply->voice);
   free(simply);
 }

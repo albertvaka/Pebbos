@@ -1,9 +1,18 @@
-var util2 = require('util2');
-var ajax = require('ajax');
-var myutil = require('myutil');
+var util2 = require('lib/util2');
+var myutil = require('lib/myutil');
+var safe = require('lib/safe');
+var ajax = require('lib/ajax');
 var appinfo = require('appinfo');
 
 var Settings = module.exports;
+
+var parseJson = function(data) {
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    safe.warn('Invalid JSON in localStorage: ' + (e.message || '') + '\n\t' + data);
+  }
+};
 
 var state;
 
@@ -12,8 +21,8 @@ Settings.settingsUrl = 'http://meiguro.com/simplyjs/settings.html';
 Settings.init = function() {
   Settings.reset();
 
-  Settings.loadOptions();
-  Settings.loadData();
+  Settings._loadOptions();
+  Settings._loadData();
 
   // Register listeners for the Settings
   Pebble.addEventListener('showConfiguration', Settings.onOpenConfig);
@@ -52,35 +61,44 @@ Settings.getBaseOptions = function() {
   };
 };
 
-var getDataKey = function(path, field) {
+Settings._getDataKey = function(path, field) {
   path = path || appinfo.uuid;
   return field + ':' + path;
 };
 
-Settings.saveData = function(path, field) {
+Settings._saveData = function(path, field, data) {
   field = field || 'data';
-  var data = data || state[field];
-  localStorage.setItem(getDataKey(path, field), JSON.stringify(data));
+  if (data) {
+    state[field] = data;
+  } else {
+    data = state[field];
+  }
+  var key = Settings._getDataKey(path, field);
+  localStorage.setItem(key, JSON.stringify(data));
 };
 
-Settings.loadData = function(path, field) {
+Settings._loadData = function(path, field, nocache) {
   field = field || 'data';
   state[field] = {};
-  var data = localStorage.getItem(getDataKey(path, field));
-  try {
-    data = JSON.parse(data);
-  } catch (e) {}
-  if (typeof data === 'object' && data !== null) {
+  var key = Settings._getDataKey(path, field);
+  var value = localStorage.getItem(key);
+  var data = parseJson(value);
+  if (value && typeof data === 'undefined') {
+    // There was an issue loading the data, remove it
+    localStorage.removeItem(key);
+  }
+  if (!nocache && typeof data === 'object' && data !== null) {
     state[field] = data;
   }
+  return data;
 };
 
-Settings.saveOptions = function(path) {
-  Settings.saveData(path, 'options');
+Settings._saveOptions = function(path) {
+  Settings._saveData(path, 'options');
 };
 
-Settings.loadOptions = function(path) {
-  Settings.loadData(path, 'options');
+Settings._loadOptions = function(path) {
+  Settings._loadData(path, 'options');
 };
 
 var makeDataAccessor = function(type, path) {
@@ -94,12 +112,10 @@ var makeDataAccessor = function(type, path) {
     }
     if (typeof field !== 'object' && value === undefined || value === null) {
       delete data[field];
-      return;
     }
     var def = myutil.toObject(field, value);
     util2.copy(def, data);
-    Settings.saveData(path, type);
-    return value;
+    Settings._saveData(path, type);
   };
 };
 
@@ -148,8 +164,10 @@ Settings.onOpenConfig = function(e) {
     options = Settings.getBaseOptions();
     return;
   }
-  var hash = encodeURIComponent(JSON.stringify(options));
-  Pebble.openURL(url + '#' + hash);
+  if (listener.params.hash !== false) {
+    url += '#' + encodeURIComponent(JSON.stringify(options));
+  }
+  Pebble.openURL(url);
 };
 
 Settings.onCloseConfig = function(e) {
@@ -165,10 +183,10 @@ Settings.onCloseConfig = function(e) {
   var options = {};
   var format;
   if (e.response) {
-    try {
-      options = JSON.parse(decodeURIComponent(e.response));
+    options = parseJson(decodeURIComponent(e.response));
+    if (typeof options === 'object' && options !== null) {
       format = 'json';
-    } catch (err) {}
+    }
     if (!format && e.response.match(/(&|=)/)) {
       options = ajax.deformify(e.response);
       if (util2.count(options) > 0) {
@@ -189,7 +207,7 @@ Settings.onCloseConfig = function(e) {
     if (format && listener.params.autoSave !== false) {
       e.originalOptions = util2.copy(state.options);
       util2.copy(options, state.options);
-      Settings.saveOptions();
+      Settings._saveOptions();
     }
     if (listener.close) {
       return listener.close(e);

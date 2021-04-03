@@ -77,10 +77,11 @@ struct.types.cstring.get = function(offset) {
     chars[j] = String.fromCharCode(buffer.getUint8(i));
   }
   this._advance = chars.length + 1;
-  return chars.join('');
+  return decodeURIComponent(escape(chars.join('')));
 };
 
 struct.types.cstring.set = function(offset, value) {
+  value = unescape(encodeURIComponent(value));
   this._grow(offset + value.length + 1);
   var i = offset;
   var buffer = this._view;
@@ -138,6 +139,7 @@ struct.prototype._prevField = function(field) {
 struct.prototype._makeAccessor = function(field) {
   this[field.name] = function(value) {
     var type = field.type;
+    
     if (field.dynamic) {
       var prevField = this._prevField(field);
       if (prevField === undefined) {
