@@ -5,6 +5,7 @@
  */
 
 var UI = require('ui');
+var WindowStack = require('ui/windowstack');
 var ajax = require('ajax');
 var Settings = require('settings');
 
@@ -24,19 +25,25 @@ var main = new UI.Card({
 
 main.show();
 
+var configured_ip = Settings.option('ip')
+
+console.log("http://" + configured_ip + ":1400/status");
+
 // Main request to get list of Speakers
 ajax(
 	{
-		url: "http://" + Settings.option('ip') + ":1400/status/topology"
+		url: "http://" + configured_ip + ":1400/status"
 	},
 	function(data) {
 		// Parse name, locations and coordinators from topology xml
 		// Half-inched from https://github.com/owlandgiraffe/Sobble
+		
+		speakersArray = [];
+	
+		/*
 		var names = data.match(/>([A-Za-z0-9s\- ]+?)<\/ZonePlayer>/gm),
 			locations = data.match(/location='(.+?)'/gm),
 			coordinators = data.match(/coordinator='(.+?)'/gm);
-
-		speakersArray = [];
 
 		if (names.length && locations.length) {
 			for (var i = 0; i < names.length; i++) {
@@ -61,100 +68,116 @@ ajax(
 				}
 			}
 		}
+		*/
+		var loc = {
+			name: "Speaker",
+			ip: configured_ip,
+			coordinator: true
+		};
+		speakersArray.push({title: loc.name, subtitle: loc.ip});
 
 		if (speakersArray.length == 0) {
 			main.body('No speakers found, try entering a valid speaker IP in the app settings');
 			return false;
-		}
-
-		var menu = new UI.Menu({
-			sections: [{
-				title: 'Sonos Speakers',
-				items: speakersArray
-			}]
-		});
-
-		menu.on('select', function(e) {
-			var volume = 0;
-
-			// Get Volume of selected speaker
-			makeRequestToSonosZone(
-				e.item.subtitle,
-				makeSOAPDataObject(
-					"getvolume",
-					"GetVolume",
-					"/MediaRenderer/RenderingControl/Control",
-					"urn:upnp-org:serviceId:RenderingControl#GetVolume",
-					"<u:GetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel></u:GetVolume>"
-				),
-				function (request, SOAPData) {
-					volume = parseInt(request.responseText.match(/<CurrentVolume>([0-9]+?)<\/CurrentVolume>/m)[1]);
-				}
-			);
-
-			var actionsMenu = new UI.Menu({
+		} else if (speakersArray.length == 1) {
+			// Single speaker
+			var speakerMenu = menuForSpeaker(speakersArray[0]);
+			WindowStack.pop();
+			speakerMenu.show();
+		} else {
+			var menu = new UI.Menu({
 				sections: [{
-					items: [{
-						title: 'Play'
-					}, {
-						title: 'Pause'
-					}, {
-						title: 'Next'
-					}, {
-						title: 'Prev'
-					}, {
-						title: 'Volume Up'
-					}, {
-						title: 'Volume Down'
-					}]
+					title: 'Sonos Speakers',
+					items: speakersArray
 				}]
 			});
-
-			actionsMenu.on('select', function(d) {
-				if (d.itemIndex == 0) {
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject("play", "Play"));
-				} else if (d.itemIndex == 1) {
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject("pause", "Pause"));
-				} else if (d.itemIndex == 2) {
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject("next", "Next"));
-				} else if (d.itemIndex == 3) {
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject("prev", "Previous"));
-				} else if (d.itemIndex == 4) {
-					volume = volume + 5;
-					if (volume > 100) {
-						volume = 100;
-					}
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject(
-						"setvolume",
-						"SetVolume",
-						"/MediaRenderer/RenderingControl/Control",
-						"urn:upnp-org:serviceId:RenderingControl#SetVolume",
-						"<u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>" + volume + "</DesiredVolume></u:SetVolume>"
-					));
-				} else if (d.itemIndex == 5) {
-					volume = volume - 5;
-					if (volume < 0) {
-						volume = 0;
-					}
-					makeRequestToSonosZone(e.item.subtitle, makeSOAPDataObject(
-						"setvolume",
-						"SetVolume",
-						"/MediaRenderer/RenderingControl/Control",
-						"urn:upnp-org:serviceId:RenderingControl#SetVolume",
-						"<u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>" + volume + "</DesiredVolume></u:SetVolume>"
-					));
-				}
+			menu.on('select', function(e) {
+				var speakerMenu = menuForSpeaker(e.item);
+				speakerMenu.show();
 			});
-			actionsMenu.show();
-		});
-
-		menu.show();
+			WindowStack.pop();
+			menu.show();
+		}
 	},
 	function(error) {
 		console.log('Error: ' + error);
-		main.body('Error finding speakers, try entering a valid speaker IP in the app settings');
+		main.body('Error finding speaker on '+configured_ip);
 	}
 );
+
+function menuForSpeaker(speaker) {
+	var volume = 0;
+
+	// Get Volume of selected speaker
+	makeRequestToSonosZone(
+		speaker.subtitle,
+		makeSOAPDataObject(
+			"getvolume",
+			"GetVolume",
+			"/MediaRenderer/RenderingControl/Control",
+			"urn:upnp-org:serviceId:RenderingControl#GetVolume",
+			"<u:GetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel></u:GetVolume>"
+		),
+		function (request, SOAPData) {
+			volume = parseInt(request.responseText.match(/<CurrentVolume>([0-9]+?)<\/CurrentVolume>/m)[1]);
+		}
+	);
+
+	var menu = new UI.Menu({
+		sections: [{
+			items: [{
+				title: 'Play'
+			}, {
+				title: 'Pause'
+			}, {
+				title: 'Next'
+			}, {
+				title: 'Prev'
+			}, {
+				title: 'Volume Up'
+			}, {
+				title: 'Volume Down'
+			}]
+		}]
+	});
+
+	menu.on('select', function(d) {
+		if (d.itemIndex == 0) {
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject("play", "Play"));
+		} else if (d.itemIndex == 1) {
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject("pause", "Pause"));
+		} else if (d.itemIndex == 2) {
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject("next", "Next"));
+		} else if (d.itemIndex == 3) {
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject("prev", "Previous"));
+		} else if (d.itemIndex == 4) {
+			volume = volume + 5;
+			if (volume > 100) {
+				volume = 100;
+			}
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject(
+				"setvolume",
+				"SetVolume",
+				"/MediaRenderer/RenderingControl/Control",
+				"urn:upnp-org:serviceId:RenderingControl#SetVolume",
+				"<u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>" + volume + "</DesiredVolume></u:SetVolume>"
+			));
+		} else if (d.itemIndex == 5) {
+			volume = volume - 5;
+			if (volume < 0) {
+				volume = 0;
+			}
+			makeRequestToSonosZone(speaker.subtitle, makeSOAPDataObject(
+				"setvolume",
+				"SetVolume",
+				"/MediaRenderer/RenderingControl/Control",
+				"urn:upnp-org:serviceId:RenderingControl#SetVolume",
+				"<u:SetVolume xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>" + volume + "</DesiredVolume></u:SetVolume>"
+			));
+		}
+	});
+	return menu;
+}
 
 // Half-inched from https://github.com/owlandgiraffe/Sobble
 function makeSOAPDataObject(eventType, cmdType, uriType, actionType, bodyData) {
